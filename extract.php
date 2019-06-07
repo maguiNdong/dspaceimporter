@@ -3,40 +3,43 @@
 
 $collection = 'mhealthevidence';
 
-//load export using query below
+$dbhost = '127.0.0.1';
+$dbuser = 'root';
+$dbpass = 'opalopal';
+   
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+$warnings = array();
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+	global $warnings;
+	global $nid;
+	$warnings[] =  "Badness on $nid ($errno) at $errline:\n $errstr\n";
+    });
 
-//query below executed in mysqlworkbench.   needed to convert & and < to &amp; and &lt; 
-$qry = 'use mhealthevidence;
-select nid,
-body_value, /* body_format, */
-/* field_author_photo_value,  field_author_photo_format, */
-field_bio_value , /* field_bio_format, */
-/*field_countries_value,  field_countries_format, */
-/*field_country_value,  field_country_format,*/
-/* field_cover_image_fid, */
+$fields = 'nid,
+body_value, 
+field_bio_value  , 
    ci.filename as cover_image_filename, ci.uri as cover_image_uri, ci.filemime as cover_image_mime, ci.filesize as cover_image_size,  ci.timestamp as cover_image_timestamp, ci.type as cover_image_type,
-/*field_files_value,  field_files_format,*/
-field_first_name_value,  /* field_first_name_format, */
-/*field_data_field_guestfield_guest_value,  field_guest_format,*/
-/*field_image_field_fid, */
+field_first_name_value, 
     ifld.filename as image_field_filename, ifld.uri as image_field_uri, ifld.filemime as image_field_mime, ifld.filesize as image_field_size, ifld.timestamp as image_field_timestamp, ifld.type as image_field_type,
-/*field_image_file_fid, */
     ifile.filename as image_file_filename, ifile.uri as image_file_uri, ifile.filemime as image_file_mime, ifile.filesize as image_file_size, ifile.timestamp as image_file_timestamp, ifile.type as image_file_type,
-/* field_language_tid, */ lang.name as lang, 
-field_last_name_value,  /*field_last_name_format, */
+ lang.name as lang, 
+field_last_name_value, 
 field_link_url,  field_link_title,
 field_link_linkedin_url,  field_link_linkedin_title,
 field_link_website_url,  field_link_website_title,
-/*field_mterg_terms_tid, */ mterg.name as mterg_terms , 
-field_organization_title_value, /* field_organization_title_format, */
+ mterg.name as mterg_terms , 
+field_organization_title_value, 
 field_outside_link_url,  field_outside_link_title,
 field_post_author_nid,
-/* field_post_tags_tid , */ ptags.name as post_tags ,
-/* field_publication_year_tid, */ pyear.name as publication_year,
-field_resource_file_description as resource_file_description, /*  field_resource_file_fid, */
+ ptags.name as post_tags ,
+ pyear.name as publication_year,
+field_resource_file_description as resource_file_description, 
    rf.filename as resource_file_filename, rf.uri  as resource_file_uri, rf.filemime as resource_file_mime, rf.filesize as resource_file_size, rf.timestamp as resource_file_timestamp, rf.type as resource_file_type,
-/*field_resource_type_tid, */  rtype.name as resource_type,
-/* field_tags_tid, */ tags.name as tags
+  rtype.name as resource_type,
+ tags.name as tags';
+$qry = 'select ' . $fields . '
 
 
 FROM node
@@ -76,96 +79,65 @@ LEFT JOIN taxonomy_term_data as tags on field_tags_tid =  tags.tid
    LEFT JOIN taxonomy_term_data as ptags on  field_post_tags_tid = ptags.tid
    LEFT JOIN taxonomy_term_data  as mterg on field_mterg_terms_tid =  mterg.tid
    LEFT JOIN taxonomy_term_data  as lang on field_language_tid = lang.tid
+where node.type = \'resource\'
 order by nid
 
 ';
 
 
-$doc = new DOMDocument();
-$in_file = $collection . '_export.xml';
-if (!$doc->load($in_file)) {die("bad file: $in_file.  Please execute the following in mysqlworkbench and export as excel? or xml?\n$qry");}
+$mysqli = new mysqli($dbhost, $dbuser, $dbpass, $collection);
+if ($mysqli->connect_errno){  die("Failed to connect to MySQL: (" . $mysqli->connect_errno . ") " . $mysqli->connect_error);}
+$mysqli->set_charset('utf8');
 
 
-$xpath = new DOMXPath($doc);
-$xpath->registerNameSpace("o","urn:schemas-microsoft-com:office:office");
-$xpath->registerNameSpace("x","urn:schemas-microsoft-com:office:excel");
-$xpath->registerNameSpace("","urn:schemas-microsoft-com:office:spreadsheet");
-$xpath->registerNameSpace("ss","urn:schemas-microsoft-com:office:spreadsheet");
-$xpath->registerNameSpace("html","http://www.w3.org/TR/REC-html40");
+$filenames = array('cover_image','image_field','image_file','resource_file');
+$links = array('field_link','field_outside_link','field_link_website');
 
-$rows = $xpath->query('//ss:Workbook/ss:Worksheet/ss:Table/ss:Row');
-$data =array();
-$header = false;
-$headers = array();
-
-
-$hexes = array('body_value','field_bio_value');
-$filenames = array('cover_image_filename','image_field_filename','image_file_filename','resource_file_filename');
-$mults = array('tags','resource_type','publication_year','post_tags','mterg_terms','lang');
-
+$furl = 'https://www.' . $collection . '.org/sites/default/files/';
 $furl = 'https://www.mhealthknowledge.org/sites/default/files/';
-$got = array();
 
-set_error_handler(function($errno, $errstr, $errfile, $errline ) {
-    });
+
+
+$headers = array();
+foreach (explode(",",$fields) as $f) {
+    $f = trim($f);
+    if (strlen($f) == 0) {continue;   }
+    foreach(explode(' as ',$f) as $p) {
+	$p = trim($p);
+	if (strlen($p) == 0) {  continue;}
+	$f = $p;
+    }
+    $headers[] = $f;
+}
+
+$data =array();
 $nid = false;
-
-foreach ($rows as $row) {
-    if (!$header) {
-	$header =true;
-	foreach ($xpath->query('./ss:Cell/ss:Data',$row) as $head) {
-	    $headers[] = $head->textContent;
+$r = array();
+$result = $mysqli->query($qry);
+while ($row = $result->fetch_assoc()) {
+    if ( $row['nid'] != $nid) {
+	//if new entry new entry so save old one
+	if ($nid) {$data[$nid] = $r;}
+	//now reset for new one
+	$nid  = $row['nid'];
+	echo "Consolidating data for $nid\n";
+	foreach ($headers as $c) {
+	    if ($c == 'nid') {continue;}
+	    $r[$c] = array();
 	}
-    } else {
-	foreach ($xpath->query('./ss:Cell/ss:Data',$row) as $i=>$cell) {
-	    $d = $cell->textContent;
-	    $c =  $headers[$i];
-	    if ($c == 'nid') {
-		if ( $d != $nid) { //assumes it is first column!!!!!
-		    echo "New Entry: $d\n";
-		    //new entry
-		    if ($nid) {
-			//was a previous one
-			$data[$nid] = $r;
-//			if ($nid == '7') {   var_dump($r); die();	}
-		    }
-		    $nid = $d;
-		    $r = array();
-		    foreach ($headers as $h) {
-			if ($h != 'nid') {
-			    $r[$h] = array();
-			}
-		    }
-		}
-		continue;
-	    }
-	    if (in_array($c,$filenames) && strlen($d) > 0 && !$got[$d]) {
-		echo "\tretrieving $d from $furl$d\n";
-		file_put_contents('files/' . $d, file_get_contents($furl . $d));
-		$got[$d] = true;
-	    }
-	    if ( in_array($c,$hexes)  && (strlen($d) > 0) ) {
-		$d = hex2bin($d);
-		//echo $d;
-		$d = str_replace('"/sites/default/files/','files/',$d); //fixup site specific URLs
-//		$t_doc = new DOMDocument();
-//		if ( !$t_doc->loadHTML($d) ) {
-		    $d = strip_tags($d);
-//		}
-	    }
-	    if (strlen($d) > 0 && ! in_array($d,$r[$c])) {
-		$r[$c][] = $d;
-		if (strlen($d) > 40) {
-		    $d = substr($d,0,40) . "...";
-		}
-		$d = str_replace(array("\n\r", "\n", "\r")," ", $d);
-		echo "\tAdding to $c $d for $prev\n";
-	    }
+    } 
+    foreach ($headers as $c) {
+	if (($c == 'nid') ) {continue;}
+	$d = $row[$c];
+	$r[$c][] = $d;
+	if (strlen($d) > 0) {
+	    echo "\tAdding to $c: " . (str_replace(array("\n\r", "\n", "\r")," ", substr($d,0,60))) . (strlen($d) > 60 ? '...': '') . "\n";
 	}
     }
-    if ($nid > 206) {break;}
 }
-$data[$prev] = $r;
+$data[$nid] = $r;
+
+
 
 
 $lang_map = array(
@@ -174,58 +146,125 @@ $lang_map = array(
 
 //want to output SAF https://wiki.duraspace.org/display/DSDOC5x/Importing+and+Exporting+Items+via+Simple+Archive+Format
 
+function get_remote_contents($url) {
+    $ch = curl_init( $url );
+    $cookie = tempnam(sys_get_temp_dir(), 'Cookie');
+    touch($cookie);
+    $options = array(
+	CURLOPT_CONNECTTIMEOUT => 10 ,
+	CURLOPT_TIMEOUT => 30 , 
+	CURLOPT_USERAGENT => "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1216.0 Safari/537.2" ,
+	CURLOPT_AUTOREFERER => true,
+	CURLOPT_FOLLOWLOCATION => true,
+	CURLOPT_RETURNTRANSFER => true,
+	CURLOPT_COOKIEFILE => $cookie,
+	CURLOPT_COOKIEJAR => $cookie ,
+	CURLOPT_SSL_VERIFYPEER => 0 ,
+	CURLOPT_SSL_VERIFYHOST => 0
+	);
+    curl_setopt_array($ch, $options);
+    $contents = curl_exec ($ch);
+    curl_close($ch);
+    unlink($cookie);
+    return $contents;
+}
+
+
 $zip = new ZipArchive;
 $zipfile = $collection . '_dspace.zip';
 if (! $zip->open($zipfile, ZipArchive::CREATE))   { die("could not create zip file $zipfile\n");}
-
+$got = array();
+//$data = array('146'=>$data['146']);
 foreach ($data as $nid => $item) {
     $dir = 'item_' . $nid;
     echo "Adding $dir to zip file\n";
     $lang = 'en';
     $year = false;
-    $title = false;
+    $titles = array();
+    $mimes = array();
     $desc = false;
-    $mime = false;
     $url =false;
-    $file_list =array();
-    if (count($item['resource_file_filename']) > 0) {
-	$title = $item['resource_file_filename'];
-	$mime = $item['resource_file_mime'];
-    } elseif (count($item['field_link_title']) > 0) {
-	$title = $item['field_link_title'];
-	$rurl =  $item['field_link_url'];
-	echo "\tretrieving $d from $furl$d\n";
-	$rfile = file_get_contents($rurl);
-	if ($rfile) {
-	    echo "\tWARNING: Could not retrieve $rurl\n";
-	} else {
-	    $rfilename = 'file/' . basename(parse_url($rurl, PHP_URL_PATH));
-	    file_put_contents($rfilename,$rfile);
-	    $mime = mime_content_type($rfilename);
-	    $file_list[] = $rfilename;
+    foreach ($filenames as $prefix) {
+	//get files that are referenced locally on the website but not saved in the db so need to retrieve
+	foreach ($item[$prefix . '_filename'] as $i=>$filename) {
+	    if (!$filename) {continue; }//just in case empty values we put int
+	    $rurl =$furl . $filename;
+	    if (array_key_exists($rurl,$got) && $got[$rurl]) { continue;}
+	    echo "\tRetrieving $rurl\n";
+	    $rfile = get_remote_contents($rurl);
+	    if (!$rfile) {echo "\tWARNING: Could not retrieve $rurl\n";	continue;}
+	    $got[$rurl] = true;
+	    file_put_contents('files/' . $filename, $rfile);
+	    $mime = false;
+	    if (array_key_existS($i,$item[$prefix . '_mime'])) {   $mime = $item[$prefix . '_mime'][$i]; }
+	    if (!$mime) { $mime = mime_content_type('files/' .  $filename);}
+	    $titles[$filename] = $filename;
+	    $mimes[$filename] = $mime;
+	}
+
+    }
+
+    foreach ($links as $prefix) {
+	//get external files
+	foreach ($item[$prefix . '_url'] as $i => $rurl) {
+	    if (!$rurl) {continue; }//just in case empty values we put int
+	    if (array_key_exists($rurl,$got) && $got[$rurl]) { continue;}
+	    //strip almost everything from url so we can use as filename
+	    $rfilename = rtrim(ltrim( preg_replace('/[^\da-z\\.]+/i', '-', explode('#',$rurl,2)[0] ), "-"),"-"); 
+	    $title = $item[$prefix . '_title'][$i];
+	    if (!$title   ) {   $title = $rfilename; }
+	    $rfile = get_remote_contents($rurl);
+	    if (!$rfile) {echo "\tWARNING: Could not retrieve $rurl\n"; continue;}
+	    if (!$title || !$rurl) {   echo "\tWARNING: bad title or URL ($title/$rurl)\n";continue;}
+
+	    $got[$rurl] = true;
+	    file_put_contents('files/' .  $rfilename,$rfile);
+	    $mime = mime_content_type('files/' .  $rfilename);
+	    echo "\tRetrieved $mime from $rurl\n";
+	    if ($mime == 'text/html') {
+		echo "\tConverting to PDF: $rurl \n";
+		//let's also try and get the PDF version
+		$out = array();
+		$ret = false;
+		$pdffilename = $rfilename . ".pdf";
+		$pdfout = "files/$pdffilename";
+		exec("wkhtmltopdf $rurl $pdfout 2> /dev/null");
+		if (is_file($pdfout) && filesize($pdfout) >0) { //success
+		    $mimes[$pdffilename] = 'application/pdf';
+		    $titles[$pdffilename] = $title;
+		} else {
+		    echo "\tWARNING: Could not convert to PDF ($ret): $rurl \n"; print_r($out);
+		}
+	    }
+	    $mimes[$rfilename] = $mime;
+	    $titles[$rfilename] = $title;
+
+
 	}
     }
-    if (!$mime) {
-	echo "\tWARNING: no mime typefor $nid\n";	
-	continue;
-    }
-    if (!$title) {
-	echo "\tWARNING: no title found for $nid\n";
-	continue;
-    }
-    if ((count($item['lang']) > 0) && ($t_lang = $item['lang'][0]) && (array_key_exists($lang,$lang_map))){
+    if (count($titles) == 0) {	echo "\tWARNING: no titles found for $nid\n";  continue; }
+    if (count($mimes) == 0) {	echo "\tWARNING: no mime types found for $nid\n"; continue; }
+    if ((count($item['lang']) > 0) && ($t_lang = $item['lang'][0]) && (array_key_exists($t_lang,$lang_map))){
 	$lang =$lang_map[$t_lang];
     }
     if (count($item['publication_year']) > 0) {
 	$year = $item['publication_year'][0];
     }
     if (count($item['body_value']) > 0) {
-	$desc = $item['body_value'][0];
+	$desc = trim($item['body_value'][0]);
+	if (strlen($desc) > 0) {
+	    $doc = new DOMDocument();
+	    if (! $doc->loadHTML($desc)) {
+		//bad html
+		echo "\tWARNING bad HTML in abstract, converting to plain text\n";
+		$desc = strip_tags($desc);
+	    }
+	}
     }
-    $zip->addEmptyDir($dir);
+    //$zip->addEmptyDir($dir);
     //see https://wiki.duraspace.org/display/DSDOC5x/Metadata+and+Bitstream+Format+Registries for dublin core fields
     $dc = '<dublin_core> 
-  <dcvalue element="title" qualifier="none" language="' . $lang . '">' . $title .'</dcvalue>
+  <dcvalue element="title" qualifier="none" language="' . $lang . '">' . $titles[array_keys($titles)[0]] .'</dcvalue>
 ' . ($year != false ? '  <dcvalue element="date" qualifier="issued">' . $year . '</dcvalue>' : '') .'
 ' . ($desc != false ? '  <dcvalue element="description" qualifier="abstract">' . $desc . '</dcvalue>' : '') .'
 </dublin_core>
@@ -235,10 +274,7 @@ foreach ($data as $nid => $item) {
 
 
 
-    foreach ($filenames as $filename) {
-	$file_list = array_merge($file_list,$item[$filename]);
-    }
-    $file_list = array_unique($file_list);
+    $file_list = array_keys($titles);
     $zip->addFromString($dir . '/contents',implode($file_list,"\n") . "\n");
     foreach ($file_list as $f_name ) {
 	echo "\tAdding $f_name\n";
@@ -253,4 +289,5 @@ foreach ($data as $nid => $item) {
 $zip->close();
 
 
+if (count($warnings) > 0) { echo "Warnings:\n" ; print_r($warnings);}
 
