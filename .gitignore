@@ -1,3 +1,5 @@
 files/*
 mhealthevidence_export.xml
 mhealthevidence_dspace.zip*
+item_*
+.DS_Store

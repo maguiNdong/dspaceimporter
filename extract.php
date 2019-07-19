@@ -1,11 +1,12 @@
 #!/usr/bin/php
 <?php
 
+
 $collection = 'mhealthevidence';
 
 $dbhost = '127.0.0.1';
 $dbuser = 'root';
-$dbpass = '';
+$dbpass = 'opalopal';
    
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -14,10 +15,10 @@ $warnings = array();
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
 	global $warnings;
 	global $nid;
-	$warnings[] =  "Badness on $nid ($errno) at $errline:\n $errstr\n";
+	$warnings[] =  "Badness on $nid ($errno) at $errline:\n " . trim($errstr) . "\n";
     });
 
-$fields = 'nid,
+$fields = 'nid, title, 
 body_value, 
 field_bio_value  , 
    ci.filename as cover_image_filename, ci.uri as cover_image_uri, ci.filemime as cover_image_mime, ci.filesize as cover_image_size,  ci.timestamp as cover_image_timestamp, ci.type as cover_image_type,
@@ -193,8 +194,9 @@ foreach ($data as $nid => $item) {
     $mimes = array();
     $desc = false;
     $url =false;
+    $main_title =  $item['title'][0];
     $aux_files = array();
-    $sources =array();
+    $sources =array();    
     foreach ($filenames as $prefix=>$filetype) {
 	//get files that are referenced locally on the website but not saved in the db so need to retrieve
 	if ($filetype == 'file') {
@@ -210,7 +212,12 @@ foreach ($data as $nid => $item) {
 		$mime = false;
 		if (array_key_existS($i,$item[$prefix . '_mime'])) {   $mime = $item[$prefix . '_mime'][$i]; }
 		if (!$mime) { $mime = mime_content_type('files/' .  $filename);}
-		$titles[$filename] = $filename;
+		if ($item['title']) {
+		    $title = $item['title'];
+		} else {
+		    $title  = $filename;
+		}
+		$titles[$filename] = $title ;
 		$mimes[$filename] = $mime;
 	    }
 	} else if ($filetype == 'auxfile') {
@@ -235,7 +242,13 @@ foreach ($data as $nid => $item) {
 		//strip almost everything from url so we can use as filename
 		$rfilename = rtrim(ltrim( preg_replace('/[^\da-z\\.]+/i', '-', explode('#',$rurl,2)[0] ), "-"),"-"); 
 		$title = $item[$prefix . '_title'][$i];
-		if (!$title   ) {   $title = $rfilename; }
+		if (!$title   ) {
+		    if ($item['title']) { 
+			$title = $item['title'];
+		    } else {
+			$title = $rfilename;
+		    }
+		}
 		echo "\tRetrieving for $prefix: $rurl\n";
 		$rfile = get_remote_contents($rurl);
 		if (!$rfile) {echo "\tWARNING: Could not retrieve $rurl\n"; continue;}
@@ -266,7 +279,7 @@ foreach ($data as $nid => $item) {
 	    }
 	}
     }
-    if (count($titles) == 0) {	echo "\tWARNING: no titles found for $nid\n";  continue; }
+    if (!$main_title && count($titles) == 0) {	echo "\tWARNING: no titles found for $nid <$main_title>\n";  continue; }
     if (count($mimes) == 0) {	echo "\tWARNING: no mime types found for $nid\n"; continue; }
 
     $zip->addFromString($dir . '/collection', $collection . "\n");
@@ -287,11 +300,10 @@ foreach ($data as $nid => $item) {
 	    }
 	}
     }
-
     //see https://wiki.duraspace.org/display/DSDOC5x/Metadata+and+Bitstream+Format+Registries for dublin core fields
     //example $item['resource_type'] = array('Tools & Guides')  dc.subject.type
-    $dcfields = '  <dcvalue element="title" qualifier="none" language="' . $lang . '">' . $titles[array_keys($titles)[0]] ."</dcvalue>\n";
-    $dcterms = '  <dcvalue element="title"  language="' . $lang . '">' . $titles[array_keys($titles)[0]] ."</dcvalue>\n";
+    $dcfields = '  <dcvalue element="title" qualifier="none" language="' . $lang . '">' .$main_title  ."</dcvalue>\n";
+    $dcterms = '  <dcvalue element="title"  language="' . $lang . '">' . $main_title ."</dcvalue>\n";
     $count =0;
     foreach ($titles as $filename => $title) {
 	$count++;
@@ -348,7 +360,7 @@ foreach ($data as $nid => $item) {
 	    echo "\tWARNING: could not add $f_name\n";
 	}
     }
-    
+    if ($nid > 250) { break;}
 
 }
 $zip->close();
