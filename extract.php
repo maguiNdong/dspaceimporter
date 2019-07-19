@@ -360,7 +360,6 @@ foreach ($data as $nid => $item) {
 	    echo "\tWARNING: could not add $f_name\n";
 	}
     }
-    if ($nid > 250) { break;}
 
 }
 $zip->close();
