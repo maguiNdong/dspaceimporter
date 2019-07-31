@@ -213,11 +213,11 @@ foreach ($data as $nid => $item) {
 		if (array_key_existS($i,$item[$prefix . '_mime'])) {   $mime = $item[$prefix . '_mime'][$i]; }
 		if (!$mime) { $mime = mime_content_type('files/' .  $filename);}
 		if ($item['title']) {
-		    $title = $item['title'];
+		    $tmp_title = $item['title'];
 		} else {
-		    $title  = $filename;
+		    $tmp_title  = $filename;
 		}
-		$titles[$filename] = $title ;
+		$titles[$filename] = $tmp_title ;
 		$mimes[$filename] = $mime;
 	    }
 	} else if ($filetype == 'auxfile') {
@@ -241,18 +241,17 @@ foreach ($data as $nid => $item) {
 		if (array_key_exists($rurl,$got) && $got[$rurl]) { continue;}
 		//strip almost everything from url so we can use as filename
 		$rfilename = rtrim(ltrim( preg_replace('/[^\da-z\\.]+/i', '-', explode('#',$rurl,2)[0] ), "-"),"-"); 
-		$title = $item[$prefix . '_title'][$i];
-		if (!$title   ) {
-		    if ($item['title']) { 
-			$title = $item['title'];
-		    } else {
-			$title = $rfilename;
+		$tmp_title = $item[$prefix . '_title'][$i];
+		if (!$tmp_title   ) {
+		    $tmp_title = $main_title;
+		    if (!$tmp_title) {
+			$tmp_title = $rfilename;
 		    }
 		}
 		echo "\tRetrieving for $prefix: $rurl\n";
 		$rfile = get_remote_contents($rurl);
 		if (!$rfile) {echo "\tWARNING: Could not retrieve $rurl\n"; continue;}
-		if (!$title || !$rurl) {   echo "\tWARNING: bad title or URL ($title/$rurl)\n";continue;}
+		if (!$tmp_title || !$rurl) {   echo "\tWARNING: bad title or URL ($tmp_title/$rurl)\n";continue;}
 
 		$got[$rurl] = true;
 		file_put_contents('files/' .  $rfilename,$rfile);
@@ -268,14 +267,14 @@ foreach ($data as $nid => $item) {
 		    exec("wkhtmltopdf " . escapeshellarg($rurl) . " " . escapeshellarg($pdfout) . " 2> /dev/null");
 		    if (is_file($pdfout) && filesize($pdfout) >0) { //success
 			$mimes[$pdffilename] = 'application/pdf';
-			$titles[$pdffilename] = $title;
+			$titles[$pdffilename] = $tmp_title;
 		    } else {
 			echo "\tWARNING: Could not convert to PDF ($ret): $rurl \n"; print_r($out);
 		    }
 		}
 		$sources[] = $rurl;
 		$mimes[$rfilename] = $mime;
-		$titles[$rfilename] = $title;
+		$titles[$rfilename] = $tmp_title;
 	    }
 	}
     }
@@ -292,12 +291,13 @@ foreach ($data as $nid => $item) {
     if (count($item['body_value']) > 0) {
 	$desc = trim($item['body_value'][0]);
 	if (strlen($desc) > 0) {
-	    $doc = new DOMDocument();
-	    if (! $doc->loadHTML($desc)) {
-		//bad html
-		echo "\tWARNING bad HTML in abstract, converting to plain text\n";
-		$desc = strip_tags($desc);
-	    }
+	    $desc = html_entity_decode($desc);
+
+//	    $doc = new DOMDocument();
+//	    if (! $doc->loadHTML($desc)) {
+//		//bad html
+//		echo "\tWARNING bad HTML in abstract, converting to plain text\n";
+//	    }
 	}
     }
     //see https://wiki.duraspace.org/display/DSDOC5x/Metadata+and+Bitstream+Format+Registries for dublin core fields
@@ -310,6 +310,7 @@ foreach ($data as $nid => $item) {
 	if ($count == 1) {
 	    continue;
 	}
+	if (!is_string($title)) { print_r($item); print_r($titles); die("BADNESS = $nid\n");}
 	$dcfields .= '  <dcvalue element="title" qualifier="alternative" >' . $title ."</dcvalue>\n";
 	$dcterms .= '  <dcvalue element="alternative" >' . $title ."</dcvalue>\n";
     }
