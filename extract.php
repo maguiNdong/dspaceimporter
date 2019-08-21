@@ -291,8 +291,8 @@ foreach ($data as $nid => $item) {
     if (count($item['body_value']) > 0) {
 	$desc = trim($item['body_value'][0]);
 	if (strlen($desc) > 0) {
-	    $desc = html_entity_decode($desc);
-
+	    $desc = str_replace("<p", "\n\n<p", $desc);
+	    $desc = strip_tags(html_entity_decode(htmlspecialchars_decode($desc)));
 //	    $doc = new DOMDocument();
 //	    if (! $doc->loadHTML($desc)) {
 //		//bad html
